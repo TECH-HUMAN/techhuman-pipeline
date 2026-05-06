@@ -1,0 +1,82 @@
+name: Deploy Pipeline to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: "41 */6 * * *"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  build:
+    name: Build Pipeline
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout canonical content
+        uses: actions/checkout@v4
+        with:
+          repository: TECH-HUMAN/th-new-business-model
+          ref: main
+          token: ${{ secrets.TH_NEW_BUSINESS_MODEL_READ_TOKEN }}
+          path: canonical
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: canonical/09-pipeline-site/package-lock.json
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Install dependencies
+        working-directory: canonical/09-pipeline-site
+        run: npm ci
+
+      - name: Build Pipeline
+        working-directory: canonical/09-pipeline-site
+        run: npm run validate
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+      - name: Add custom domain marker
+        run: echo "pipeline.techhuman.com.br" > canonical/09-pipeline-site/out/CNAME
+
+      - name: Verify artifact
+        run: |
+          test -f canonical/09-pipeline-site/out/index.html
+          grep -q "Pipeline Tech Human" canonical/09-pipeline-site/out/index.html
+          grep -q "CRM proprio Tech Human" canonical/09-pipeline-site/out/index.html
+          grep -q "AGENTS SDR IA" canonical/09-pipeline-site/out/index.html
+          grep -q 'href="/_next/' canonical/09-pipeline-site/out/index.html
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: canonical/09-pipeline-site/out
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
